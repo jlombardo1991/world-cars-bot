@@ -221,7 +221,6 @@ app.post("/voice", async (req, res) => {
           timeout="10"
           speechTimeout="auto"
           language="${lang}">
-    <Say>Please speak after the beep.</Say>
   </Gather>
 </Response>
 `;
