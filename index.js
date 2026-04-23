@@ -12,7 +12,7 @@ app.use("/audio", express.static("public"));
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// 🌍 Mapear idioma
+// 🌍 idioma Twilio
 function getTwilioLang(lang) {
   switch (lang) {
     case "es": return "es-ES";
@@ -23,60 +23,53 @@ function getTwilioLang(lang) {
   }
 }
 
-// Prompt
+// 🧠 Prompt
 const systemPrompt = `
-You are a friendly and natural car service receptionist for WORLD CARS.
+You are a friendly car service receptionist for WORLD CARS.
 
-- Speak like a human, warm & helpful.
-- Use short, clear sentences
+Speak naturally, short sentences.
 
-SERVICES OFFERED:
+SERVICES:
 - Standard Service: oil change, oil filter, basic inspection
-- Full Service: Customer can check website
-- Diagnostics: engine lights or mechanical issues 
+- Full Service: check website
+- Diagnostics: engine issues
 - Repairs: brakes, suspension, engine work
-- Tyres replacement & balance (ask tyre size and quantity)
+- Tyres: ask size + quantity
 
 RULES:
-- Do NOT invent prices
-- Guide the customer
-- Booking hours: Monday to Friday 7:30 AM to 5 PM
-- Closed on New Zealand public holidays
+- No invent prices
+- Be helpful
+- Booking hours: Mon–Fri 7:30–5
+- NZ public holidays closed
 
 LANGUAGE:
-- Detect user language and reply in same language
-- Supported: English, Spanish, Portuguese, Chinese (Mandarin)
-- Do NOT mention language switching
+- Detect and respond in same language (EN, ES, PT, ZH)
 
-IMPORTANT:
-- Do NOT ask same info twice
-- Extract multiple data if given
-
-BOOKING:
+BOOKING FLOW:
 1. Name + phone
 2. Vehicle + plate
 3. Service
 4. Date/time
 
-Use [END_OF_BOOKING] internally only.
+Use [END_OF_BOOKING] only when finished.
 `;
 
 const conversations = {};
 
-// 🔊 Audio
+// 🔊 TTS
 async function generarAudio(texto, fileName) {
   const response = await openai.audio.speech.create({
     model: "gpt-4o-mini-tts",
     voice: "alloy",
     input: texto,
-    speed: 1.2,
+    speed: 1.1,
   });
 
   const buffer = Buffer.from(await response.arrayBuffer());
   fs.writeFileSync(path.join(__dirname, "public", `${fileName}.mp3`), buffer);
 }
 
-// 📧 Email
+// 📧 EMAIL
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
@@ -85,7 +78,7 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-// 🧠 Resumen
+// 🧠 RESUMEN
 async function generarResumen(conversation) {
   const completion = await openai.chat.completions.create({
     model: "gpt-4o-mini",
@@ -93,7 +86,7 @@ async function generarResumen(conversation) {
     messages: [{
       role: "user",
       content: `
-Extract booking info as JSON:
+Extract booking JSON:
 fullName, phone, vehicle, licensePlate, serviceType, dateTime
 
 ${conversation.map(m => `${m.role}: ${m.content}`).join("\n")}
@@ -104,75 +97,83 @@ ${conversation.map(m => `${m.role}: ${m.content}`).join("\n")}
   return JSON.parse(completion.choices[0].message.content);
 }
 
-// 📧 Enviar email
+// 📧 ENVIAR EMAIL
 async function enviarEmail(conversation) {
   const s = await generarResumen(conversation);
 
   await transporter.sendMail({
     from: process.env.EMAIL_USER,
     to: "info@worldcars.co.nz",
-    subject: `Booking: ${s.licensePlate || "??"} | ${s.serviceType || "??"} | ${s.dateTime || "??"}`,
+    subject: `Booking: ${s.licensePlate || "??"} | ${s.serviceType || "??"}`,
     html: `
-<p><b>Name:</b> ${s.fullName}</p>
-<p><b>Phone:</b> ${s.phone}</p>
-<p><b>Vehicle:</b> ${s.vehicle}</p>
-<p><b>Plate:</b> ${s.licensePlate}</p>
-<p><b>Service:</b> ${s.serviceType}</p>
-<p><b>Date:</b> ${s.dateTime}</p>
-`
+      <p><b>Name:</b> ${s.fullName}</p>
+      <p><b>Phone:</b> ${s.phone}</p>
+      <p><b>Vehicle:</b> ${s.vehicle}</p>
+      <p><b>Plate:</b> ${s.licensePlate}</p>
+      <p><b>Service:</b> ${s.serviceType}</p>
+      <p><b>Date:</b> ${s.dateTime}</p>
+    `
   });
 
   console.log("📧 Email enviado");
 }
 
-// 📞 Ruta
+// 📞 VOICE ROUTE
 app.post("/voice", async (req, res) => {
   const callSid = req.body.CallSid;
   const speech = req.body.SpeechResult?.trim();
 
   if (!conversations[callSid]) {
-    conversations[callSid] = [{ role: "system", content: systemPrompt }];
+    conversations[callSid] = {
+      lang: "en",
+      history: [{ role: "system", content: systemPrompt }]
+    };
   }
 
-  const conversation = conversations[callSid];
+  const session = conversations[callSid];
+  const conversation = session.history;
+
   let ttsText = "";
   let finished = false;
 
-  // 🧠 SIN INPUT
+  // 🧠 PRIMER MENSAJE (sin input)
   if (!speech) {
-    ttsText =
-      "Hello, thank you for calling World Cars. I can help you book your vehicle. Please tell me your full name and phone number.";
+    ttsText = "Hello, welcome to World Cars. Please tell me your full name and phone number.";
 
   } else {
-    conversation.push({ role: "user", content: speech });
 
-    // 🌍 Detectar idioma UNA VEZ
-    if (!conversations[callSid].lang) {
-      try {
-        const langDetect = await openai.chat.completions.create({
-          model: "gpt-4o-mini",
-          messages: [{
-            role: "user",
-            content: `Detect language (en, es, pt, zh only): ${speech}`
-          }]
-        });
+    // 🚨 fallback anti-silencio
+    if (speech.length < 2) {
+      ttsText = "Sorry, I didn't hear you clearly. Please repeat your name and phone number.";
+    } else {
 
-        conversations[callSid].lang =
-          langDetect.choices[0].message.content.trim().toLowerCase();
+      conversation.push({ role: "user", content: speech });
 
-      } catch {
-        conversations[callSid].lang = "en";
+      // 🌍 detectar idioma solo 1 vez
+      if (!session.langDetected) {
+        try {
+          const langDetect = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [{
+              role: "user",
+              content: `Detect language only: en, es, pt, zh. Text: ${speech}`
+            }]
+          });
+
+          session.lang = langDetect.choices[0].message.content.trim().toLowerCase();
+          session.langDetected = true;
+
+        } catch {
+          session.lang = "en";
+        }
       }
-    }
 
-    try {
       const completion = await openai.chat.completions.create({
         model: "gpt-4o-mini",
         messages: conversation,
       });
 
       let aiResponse = completion.choices[0].message.content;
-
       conversation.push({ role: "assistant", content: aiResponse });
 
       if (aiResponse.includes("[END_OF_BOOKING]")) {
@@ -184,27 +185,23 @@ app.post("/voice", async (req, res) => {
       } else {
         ttsText = aiResponse;
       }
-
-    } catch (err) {
-      console.error("ERROR OPENAI:", err);
-      ttsText = "Sorry, something went wrong.";
     }
   }
 
-  // 🌍 idioma dinámico
-  const lang = getTwilioLang(conversations[callSid].lang || "en");
+  // 🌍 idioma Twilio
+  const lang = getTwilioLang(session.lang || "en");
 
-  // 🔊 generar audio SIEMPRE
+  // 🔊 audio
   let audioUrl = "";
   try {
     const fileName = `resp-${Date.now()}`;
     await generarAudio(ttsText, fileName);
     audioUrl = `https://TU-NGROK/audio/${fileName}.mp3`;
   } catch (err) {
-    console.error("ERROR AUDIO:", err);
+    console.error("AUDIO ERROR:", err);
   }
 
-  // 📡 Twilio response
+  // 📡 TWIML
   let twiml = "";
 
   if (finished) {
@@ -218,16 +215,27 @@ app.post("/voice", async (req, res) => {
     twiml = `
 <Response>
   ${audioUrl ? `<Play>${audioUrl}</Play>` : `<Say>${ttsText}</Say>`}
-  <Gather input="speech" action="/voice" method="POST" timeout="4" speechTimeout="1" language="${lang}" />
+  <Gather input="speech"
+          action="/voice"
+          method="POST"
+          timeout="10"
+          speechTimeout="auto"
+          language="${lang}">
+    <Say>Please speak after the beep.</Say>
+  </Gather>
 </Response>
 `;
   }
 
   res.type("text/xml").send(twiml);
 
-  // 📦 cerrar
+  // 📦 cerrar booking
   if (finished) {
-    fs.writeFileSync(`turno-${Date.now()}.json`, JSON.stringify(conversation, null, 2));
+    fs.writeFileSync(
+      `turno-${Date.now()}.json`,
+      JSON.stringify(conversation, null, 2)
+    );
+
     await enviarEmail(conversation);
     delete conversations[callSid];
   }
