@@ -3,12 +3,17 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const fs = require("fs");
 const path = require("path");
+const audioDir = path.join(__dirname, "public");
+
+if (!fs.existsSync(audioDir)) {
+  fs.mkdirSync(audioDir);
+}
 const { OpenAI } = require("openai");
 const nodemailer = require("nodemailer");
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
-app.use("/audio", express.static("public"));
+app.use("/audio", express.static(audioDir));
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -66,7 +71,8 @@ async function generarAudio(texto, fileName) {
   });
 
   const buffer = Buffer.from(await response.arrayBuffer());
-  fs.writeFileSync(path.join(__dirname, "public", `${fileName}.mp3`), buffer);
+  const filePath = path.join(audioDir, `${fileName}.mp3`);
+fs.writeFileSync(filePath, buffer);
 }
 
 // 📧 EMAIL
