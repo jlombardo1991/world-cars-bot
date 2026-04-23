@@ -126,11 +126,8 @@ async function enviarEmail(conversation) {
   console.log("📧 Email enviado");
 }
 
-// 📞 VOICE ROUTE (FIXED)
+// 📞 VOICE ROUTE (FIXED & CLEAN)
 app.post("/voice", async (req, res) => {
-  const speech = req.body.SpeechResult;
-
-  app.post("/voice", async (req, res) => {
   const speech = req.body.SpeechResult;
 
   if (!conversations["session"]) {
@@ -143,38 +140,32 @@ app.post("/voice", async (req, res) => {
 
   let ttsText = "";
 
-  // 🧠 PRIMER MENSAJE
+  // 🧠 PRIMER CONTACTO
   if (!speech) {
     ttsText = "Hello, welcome to World Cars. Please tell me your full name and phone number.";
 
   } else {
-
     conversation.push({ role: "user", content: speech });
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: conversation,
-    });
+    try {
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: conversation,
+      });
 
-    ttsText = completion.choices[0].message.content;
+      ttsText = completion.choices[0].message.content;
 
-    conversation.push({ role: "assistant", content: ttsText });
+      conversation.push({ role: "assistant", content: ttsText });
+
+    } catch (err) {
+      console.error("OPENAI ERROR:", err);
+      ttsText = "Sorry, something went wrong. Please try again.";
+    }
   }
 
   const twiml = `
 <Response>
   <Say>${ttsText}</Say>
-  <Gather input="speech" action="/voice" method="POST" timeout="10">
-  </Gather>
-</Response>
-`;
-
-  return res.type("text/xml").send(twiml);
-});
-
-  const twiml = `
-<Response>
-  <Say>${text}</Say>
   <Gather input="speech" action="/voice" method="POST" timeout="10">
   </Gather>
 </Response>
