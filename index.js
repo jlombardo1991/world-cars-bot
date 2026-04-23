@@ -130,9 +130,47 @@ async function enviarEmail(conversation) {
 app.post("/voice", async (req, res) => {
   const speech = req.body.SpeechResult;
 
-  const text = !speech
-    ? "Hello, welcome to World Cars. Please tell me your name and phone number."
-    : "Got it. Let me process that. Please continue.";
+  app.post("/voice", async (req, res) => {
+  const speech = req.body.SpeechResult;
+
+  if (!conversations["session"]) {
+    conversations["session"] = [
+      { role: "system", content: systemPrompt }
+    ];
+  }
+
+  const conversation = conversations["session"];
+
+  let ttsText = "";
+
+  // 🧠 PRIMER MENSAJE
+  if (!speech) {
+    ttsText = "Hello, welcome to World Cars. Please tell me your full name and phone number.";
+
+  } else {
+
+    conversation.push({ role: "user", content: speech });
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: conversation,
+    });
+
+    ttsText = completion.choices[0].message.content;
+
+    conversation.push({ role: "assistant", content: ttsText });
+  }
+
+  const twiml = `
+<Response>
+  <Say>${ttsText}</Say>
+  <Gather input="speech" action="/voice" method="POST" timeout="10">
+  </Gather>
+</Response>
+`;
+
+  return res.type("text/xml").send(twiml);
+});
 
   const twiml = `
 <Response>
