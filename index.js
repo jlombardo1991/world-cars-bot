@@ -3,13 +3,15 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const fs = require("fs");
 const path = require("path");
+const { OpenAI } = require("openai");
+const nodemailer = require("nodemailer");
+
+// 📁 AUDIO FOLDER SAFE SETUP
 const audioDir = path.join(__dirname, "public");
 
 if (!fs.existsSync(audioDir)) {
-  fs.mkdirSync(audioDir);
+  fs.mkdirSync(audioDir, { recursive: true });
 }
-const { OpenAI } = require("openai");
-const nodemailer = require("nodemailer");
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
@@ -72,7 +74,7 @@ async function generarAudio(texto, fileName) {
 
   const buffer = Buffer.from(await response.arrayBuffer());
   const filePath = path.join(audioDir, `${fileName}.mp3`);
-fs.writeFileSync(filePath, buffer);
+  fs.writeFileSync(filePath, buffer);
 }
 
 // 📧 EMAIL
@@ -124,7 +126,7 @@ async function enviarEmail(conversation) {
   console.log("📧 Email enviado");
 }
 
-// 📞 VOICE ROUTE
+// 📞 VOICE ROUTE (FIXED)
 app.post("/voice", async (req, res) => {
   const speech = req.body.SpeechResult;
 
@@ -143,58 +145,7 @@ app.post("/voice", async (req, res) => {
   return res.type("text/xml").send(twiml);
 });
 
-  // 🌍 idioma Twilio
-  const lang = getTwilioLang(session.lang || "en");
-
-  // 🔊 audio
-  let audioUrl = "";
-  try {
-    const fileName = `resp-${Date.now()}`;
-    await generarAudio(ttsText, fileName);
-    audioUrl = `https://TU-NGROK/audio/${fileName}.mp3`;
-  } catch (err) {
-    console.error("AUDIO ERROR:", err);
-  }
-
-  // 📡 TWIML
-  let twiml = "";
-
-  if (finished) {
-    twiml = `
-<Response>
-  ${audioUrl ? `<Play>${audioUrl}</Play>` : `<Say>${ttsText}</Say>`}
-  <Hangup/>
-</Response>
-`;
-  } else {
-    twiml = `
-<Response>
-  ${audioUrl ? `<Play>${audioUrl}</Play>` : `<Say>${ttsText}</Say>`}
-  <Gather input="speech"
-          action="/voice"
-          method="POST"
-          timeout="10"
-          speechTimeout="auto"
-          language="${lang}">
-  </Gather>
-</Response>
-`;
-  }
-
-  res.type("text/xml").send(twiml);
-
-  // 📦 cerrar booking
-  if (finished) {
-    fs.writeFileSync(
-      `turno-${Date.now()}.json`,
-      JSON.stringify(conversation, null, 2)
-    );
-
-    await enviarEmail(conversation);
-    delete conversations[callSid];
-  }
-});
-
+// 🚀 START SERVER
 app.listen(process.env.PORT, () => {
   console.log(`Servidor corriendo en puerto ${process.env.PORT}`);
 });
