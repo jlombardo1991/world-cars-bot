@@ -126,73 +126,22 @@ async function enviarEmail(conversation) {
 
 // 📞 VOICE ROUTE
 app.post("/voice", async (req, res) => {
-  const callSid = req.body.CallSid;
-  const speech = req.body.SpeechResult?.trim();
+  const speech = req.body.SpeechResult;
 
-  if (!conversations[callSid]) {
-    conversations[callSid] = {
-      lang: "en",
-      history: [{ role: "system", content: systemPrompt }]
-    };
-  }
+  const text = !speech
+    ? "Hello, welcome to World Cars. Please tell me your name and phone number."
+    : "Got it. Let me process that. Please continue.";
 
-  const session = conversations[callSid];
-  const conversation = session.history;
+  const twiml = `
+<Response>
+  <Say>${text}</Say>
+  <Gather input="speech" action="/voice" method="POST" timeout="10">
+  </Gather>
+</Response>
+`;
 
-  let ttsText = "";
-  let finished = false;
-
-  // 🧠 PRIMER MENSAJE (sin input)
-  if (!speech) {
-    ttsText = "Hello, welcome to World Cars. Please tell me your full name and phone number.";
-
-  } else {
-
-    // 🚨 fallback anti-silencio
-    if (speech.length < 2) {
-      ttsText = "Sorry, I didn't hear you clearly. Please repeat your name and phone number.";
-    } else {
-
-      conversation.push({ role: "user", content: speech });
-
-      // 🌍 detectar idioma solo 1 vez
-      if (!session.langDetected) {
-        try {
-          const langDetect = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: [{
-              role: "user",
-              content: `Detect language only: en, es, pt, zh. Text: ${speech}`
-            }]
-          });
-
-          session.lang = langDetect.choices[0].message.content.trim().toLowerCase();
-          session.langDetected = true;
-
-        } catch {
-          session.lang = "en";
-        }
-      }
-
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: conversation,
-      });
-
-      let aiResponse = completion.choices[0].message.content;
-      conversation.push({ role: "assistant", content: aiResponse });
-
-      if (aiResponse.includes("[END_OF_BOOKING]")) {
-        ttsText = aiResponse.replace(
-          "[END_OF_BOOKING]",
-          "Perfect, your booking is confirmed. We will contact you shortly. Thank you, goodbye."
-        );
-        finished = true;
-      } else {
-        ttsText = aiResponse;
-      }
-    }
-  }
+  return res.type("text/xml").send(twiml);
+});
 
   // 🌍 idioma Twilio
   const lang = getTwilioLang(session.lang || "en");
