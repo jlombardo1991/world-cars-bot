@@ -67,7 +67,7 @@ const conversations = {};
 async function generarAudio(texto, fileName) {
   const response = await openai.audio.speech.create({
     model: "gpt-4o-mini-tts",
-    voice: "alloy",
+    voice: "nova",
     input: texto,
     speed: 1.1,
   });
@@ -142,7 +142,7 @@ app.post("/voice", async (req, res) => {
 
   // 🧠 PRIMER CONTACTO
   if (!speech) {
-    ttsText = "Hello, welcome to World Cars. Please tell me your full name and phone number.";
+    ttsText = "Hello, thanks for calling World Cars. Could I get your name and phone number please?";
 
   } else {
     conversation.push({ role: "user", content: speech });
@@ -155,6 +155,24 @@ app.post("/voice", async (req, res) => {
 
       ttsText = completion.choices[0].message.content;
 
+const isFinished =
+  ttsText.includes("[END_OF_BOOKING]") ||
+  /booking.*(confirmed|complete|done)/i.test(ttsText);
+
+if (isFinished) {
+  try {
+    await enviarEmail(conversation);
+    delete conversations["session"];
+  } catch (err) {
+    console.error("EMAIL ERROR:", err);
+  }
+
+  ttsText = ttsText.replace(
+    "[END_OF_BOOKING]",
+    "Perfect, your request for the booking is confirmed. We will contact you shortly. Goodbye."
+  );
+}
+
       conversation.push({ role: "assistant", content: ttsText });
 
     } catch (err) {
@@ -166,7 +184,7 @@ app.post("/voice", async (req, res) => {
   const twiml = `
 <Response>
   <Say>${ttsText}</Say>
-  <Gather input="speech" action="/voice" method="POST" timeout="10">
+  <Gather input="speech" action="/voice" method="POST" timeout="5" speechTimeout="auto">
   </Gather>
 </Response>
 `;
